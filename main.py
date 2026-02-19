@@ -7,7 +7,7 @@ from datetime import datetime
 BACKEND_URL = "https://medical-ai-engine-backend-895886568528.asia-northeast1.run.app"
 
 st.set_page_config(page_title="医療AIプラットフォーム", layout="wide")
-st.title("🏥 医療AI 思考・対話エンジン")
+st.title("🏥 medical-ai-chat")
 
 # --- セッション状態の初期化 ---
 if "messages" not in st.session_state:
