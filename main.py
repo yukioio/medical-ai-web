@@ -3,20 +3,22 @@ import requests
 from datetime import datetime
 
 # --- 設定 ---
-# 実際のCloud RunのURLに置き換えてください
 BACKEND_URL = "https://medical-ai-engine-backend-895886568528.asia-northeast1.run.app"
 
 st.set_page_config(page_title="医療AIプラットフォーム", layout="wide")
 st.title("🏥 medical-ai-chat")
 
-# --- セッション状態の初期化 ---
+# --- 1. セッション状態の初期化 (ここが重要) ---
 if "messages" not in st.session_state:
     st.session_state.messages = []
+if "current_session_id" not in st.session_state:
+    # 初回だけデフォルトIDを作る
+    st.session_state.current_session_id = datetime.now().strftime("%m%d-%H%M%S")
 
 # --- サイドバー：チャット管理 ---
 st.sidebar.header("チャット管理")
 
-# 1. バックエンドからチャット一覧を取得
+# バックエンドからチャット一覧を取得
 try:
     sessions_res = requests.get(f"{BACKEND_URL}/sessions")
     session_list = sessions_res.json().get("sessions", []) if sessions_res.status_code == 200 else []
@@ -26,49 +28,53 @@ except:
 # セッション選択
 selected_session = st.sidebar.selectbox(
     "チャットを選択", 
-    ["新規チャット"] + session_list
+    ["新規チャット"] + session_list,
+    key="session_selector"
 )
 
-# セッションIDの確定
+# セッションIDの確定ロジック
 if selected_session == "新規チャット":
-    default_id = datetime.now().strftime("%m%d-%H%M%S")
-    session_id = st.sidebar.text_input("新規チャット名", value=default_id)
+    # ユーザーが自由に入力できるようにし、入力されたら session_state を更新する
+    new_id = st.sidebar.text_input("新規チャット名（英数字推奨）", value=st.session_state.current_session_id)
+    if new_id != st.session_state.current_session_id:
+        st.session_state.current_session_id = new_id
+        st.session_state.messages = [] # 名前を変えたら画面もクリア
+    session_id = st.session_state.current_session_id
 else:
+    # 既存チャットを選んだ場合
     session_id = selected_session
-    # 2. 過去チャットが選択された瞬間に履歴をバックエンドから取得
-    # (既に読み込み済みでない場合のみ実行すると効率的)
-    if st.sidebar.button("このチャットを読み込む"):
-        with st.spinner("履歴を読み込み中..."):
-            history_res = requests.get(f"{BACKEND_URL}/history/{session_id}")
-            if history_res.status_code == 200:
-                # 過去5往復（10件）を取得
-                st.session_state.messages = history_res.json().get("history", [])[-10:]
-                st.success("読み込み完了")
+    if st.sidebar.button("履歴を読み込む"):
+        with st.spinner("ロード中..."):
+            res = requests.get(f"{BACKEND_URL}/history/{session_id}")
+            if res.status_code == 200:
+                st.session_state.messages = res.json().get("history", [])
+                st.session_state.current_session_id = session_id # IDを固定
+                st.success("ロード完了")
 
 st.sidebar.divider()
-st.sidebar.info(f"現在のセッション: {session_id}")
+st.sidebar.info(f"送信先ID: {session_id}")
 
 # --- メインチャット画面 ---
 
-# 3. 履歴の表示
+# 履歴の表示
 for msg in st.session_state.messages:
     with st.chat_message(msg["role"]):
         st.write(msg["content"])
 
-# 4. ユーザー入力
-if prompt := st.chat_input("症状や解析したい内容を入力してください..."):
-    # ユーザーの入力を画面と状態に追加
+# ユーザー入力
+if prompt := st.chat_input("メッセージを入力..."):
+    # 画面に即座に反映
     st.session_state.messages.append({"role": "user", "content": prompt})
     with st.chat_message("user"):
         st.write(prompt)
 
-    # バックエンドへ送信（回答を待つ）
+    # バックエンドへ送信
     with st.chat_message("assistant"):
-        message_placeholder = st.empty()
-        message_placeholder.markdown("思考中...")
+        placeholder = st.empty()
+        placeholder.markdown("思考中...")
         
         try:
-            # 入力とIDをバックエンドに投げる
+            # 固定された session_id を送る
             response = requests.post(
                 f"{BACKEND_URL}/chat", 
                 json={"message": prompt, "session_id": session_id},
@@ -76,14 +82,10 @@ if prompt := st.chat_input("症状や解析したい内容を入力してくだ�
             )
             
             if response.status_code == 200:
-                full_response = response.json().get("reply")
-                message_placeholder.markdown(full_response)
-                # 状態にAIの回答を追加
-                st.session_state.messages.append({"role": "assistant", "content": full_response})
-                # 5往復（10件）に維持
-                if len(st.session_state.messages) > 10:
-                    st.session_state.messages = st.session_state.messages[-10:]
+                ai_reply = response.json().get("reply")
+                placeholder.markdown(ai_reply)
+                st.session_state.messages.append({"role": "assistant", "content": ai_reply})
             else:
-                message_placeholder.error("バックエンドでエラーが発生しました。")
+                placeholder.error(f"エラー: {response.status_code}")
         except Exception as e:
-            message_placeholder.error(f"通信エラーが発生しました: {e}")
+            placeholder.error(f"接続失敗: {e}")
