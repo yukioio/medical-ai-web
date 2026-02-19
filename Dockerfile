@@ -16,4 +16,4 @@ RUN pip install --no-cache-dir --upgrade pip && \
 EXPOSE 8080
 
 # 修正版 CMD
-CMD ["streamlit", "run", "app.py", "--server.port", "8080", "--server.address", "0.0.0.0"]
+CMD ["streamlit", "run", "main.py", "--server.port", "8080", "--server.address", "0.0.0.0"]
